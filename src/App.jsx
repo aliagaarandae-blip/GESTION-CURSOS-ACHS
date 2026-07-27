@@ -43,7 +43,7 @@ const COLORS = {
 // en ejecución = gris, asignado = amarillo, focalizado exitoso = verde,
 // focalizado pendiente = naranjo, cancelado/suspendido = rojo.
 const AGENDA_COLORS = {
-  ejecucion: "#6b7280",
+  ejecucion: "#2563eb",
   asignado: "#ca8a04",
   focalizadoExitoso: "#16a34a",
   focalizadoPendiente: "#f97316",
@@ -87,16 +87,20 @@ function cursoActivoEnDia(curso, dia) {
   return d >= ini && d <= fin;
 }
 function estadoVisual(curso) {
-  if (CANCEL_STATES.includes(curso.Estado)) return { color: AGENDA_COLORS.cancelado, label: "Cancelado / Suspendido" };
+  // El color y la etiqueta siguen el sub-estado exacto pedido:
+  // Cancelado dentro/fuera de plazo (y Suspendido) -> rojo, mostrando el
+  // texto real del estado; en ejecución hoy -> azul; focalizado con archivo
+  // cargado -> verde (exitosa) / sin archivo -> naranjo; asignado -> amarillo.
+  if (CANCEL_STATES.includes(curso.Estado)) return { color: AGENDA_COLORS.cancelado, label: curso.Estado };
   if (curso.Estado !== "Finalizado" && cursoActivoEnDia(curso, hoySinHora())) {
-    return { color: AGENDA_COLORS.ejecucion, label: "En ejecución" };
+    return { color: AGENDA_COLORS.ejecucion, label: "Curso en Ejecución" };
   }
   if (curso.Estado === "Focalizado") {
     return curso.FocalizacionCargada
-      ? { color: AGENDA_COLORS.focalizadoExitoso, label: "Focalizado (exitoso)" }
-      : { color: AGENDA_COLORS.focalizadoPendiente, label: "Focalizado (pendiente)" };
+      ? { color: AGENDA_COLORS.focalizadoExitoso, label: "Focalización Exitosa" }
+      : { color: AGENDA_COLORS.focalizadoPendiente, label: "Focalización Pendiente" };
   }
-  if (curso.Estado === "Asignado") return { color: AGENDA_COLORS.asignado, label: "Asignado" };
+  if (curso.Estado === "Asignado") return { color: AGENDA_COLORS.asignado, label: "Asignado a Relator" };
   if (curso.Estado === "Finalizado") return { color: AGENDA_COLORS.finalizado, label: "Finalizado" };
   return { color: COLORS.sub, label: curso.Estado };
 }
@@ -402,11 +406,11 @@ function CourseCard({ curso, onOpen }) {
 
 function LeyendaColores() {
   const items = [
-    { color: AGENDA_COLORS.ejecucion, label: "En ejecución" },
-    { color: AGENDA_COLORS.asignado, label: "Asignado" },
-    { color: AGENDA_COLORS.focalizadoExitoso, label: "Focalizado exitoso" },
-    { color: AGENDA_COLORS.focalizadoPendiente, label: "Focalizado pendiente" },
-    { color: AGENDA_COLORS.cancelado, label: "Cancelado / Suspendido" },
+    { color: AGENDA_COLORS.ejecucion, label: "Curso en Ejecución" },
+    { color: AGENDA_COLORS.asignado, label: "Asignado a Relator" },
+    { color: AGENDA_COLORS.focalizadoExitoso, label: "Focalización Exitosa" },
+    { color: AGENDA_COLORS.focalizadoPendiente, label: "Focalización Pendiente" },
+    { color: AGENDA_COLORS.cancelado, label: "Cancelado dentro / fuera de plazo" },
   ];
   return (
     <div className="flex flex-wrap gap-3 mb-4">
