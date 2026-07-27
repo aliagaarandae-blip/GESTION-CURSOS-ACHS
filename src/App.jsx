@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   LayoutDashboard, Calendar, LogOut, RefreshCw, QrCode, FileText,
   Upload, AlertTriangle, CheckCircle2, XCircle, Users, MapPin, Clock,
-  Send, BarChart3, Filter, ChevronLeft, Image as ImageIcon, Ban, Mail,
-  MessageCircle, Search,
+  Send, BarChart3, Filter, ChevronLeft, ChevronRight, Image as ImageIcon, Ban, Mail,
+  MessageCircle, Search, Copy,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
@@ -38,6 +38,69 @@ const COLORS = {
   Finalizado: "#16a34a",
 };
 
+// Colores usados SOLO en la agenda (vista día/semana/mes) — combinan estado +
+// fechas + si ya se cargó la focalización, según lo pedido:
+// en ejecución = gris, asignado = amarillo, focalizado exitoso = verde,
+// focalizado pendiente = naranjo, cancelado/suspendido = rojo.
+const AGENDA_COLORS = {
+  ejecucion: "#6b7280",
+  asignado: "#ca8a04",
+  focalizadoExitoso: "#16a34a",
+  focalizadoPendiente: "#f97316",
+  cancelado: "#dc2626",
+  finalizado: "#64748b",
+};
+const CANCEL_STATES = ["Suspendido", "Cancelado dentro de plazo", "Cancelado fuera de plazo"];
+
+function parseFecha(v) {
+  const d = new Date(v);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function hoySinHora() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function addDays(d, n) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+function startOfWeekMonday(d) {
+  const x = hoyDe(d);
+  const day = (x.getDay() + 6) % 7; // 0 = lunes
+  return addDays(x, -day);
+}
+function hoyDe(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function sameYMD(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+function cursoActivoEnDia(curso, dia) {
+  const ini = parseFecha(curso.FechaInicio);
+  const fin = parseFecha(curso.FechaTermino);
+  const d = hoyDe(dia);
+  return d >= ini && d <= fin;
+}
+function estadoVisual(curso) {
+  if (CANCEL_STATES.includes(curso.Estado)) return { color: AGENDA_COLORS.cancelado, label: "Cancelado / Suspendido" };
+  if (curso.Estado !== "Finalizado" && cursoActivoEnDia(curso, hoySinHora())) {
+    return { color: AGENDA_COLORS.ejecucion, label: "En ejecución" };
+  }
+  if (curso.Estado === "Focalizado") {
+    return curso.FocalizacionCargada
+      ? { color: AGENDA_COLORS.focalizadoExitoso, label: "Focalizado (exitoso)" }
+      : { color: AGENDA_COLORS.focalizadoPendiente, label: "Focalizado (pendiente)" };
+  }
+  if (curso.Estado === "Asignado") return { color: AGENDA_COLORS.asignado, label: "Asignado" };
+  if (curso.Estado === "Finalizado") return { color: AGENDA_COLORS.finalizado, label: "Finalizado" };
+  return { color: COLORS.sub, label: curso.Estado };
+}
+
 // ============================================================================
 // CAPA DE API — habla con Apps Script (o con datos demo si no hay URL)
 // ============================================================================
@@ -66,11 +129,11 @@ function fileToBase64(file) {
 // MOCK DATA (solo para previsualizar la interfaz sin backend desplegado)
 // ---------------------------------------------------------------------------
 const MOCK_CURSOS = [
-  { OP: "OP-2201", FechaInicio: "2026-07-28", FechaTermino: "2026-07-29", HoraInicio: "09:00", HoraTermino: "13:00", Lugar: "Sede Maipú", Direccion: "Av. Pajaritos 1234", Estado: "Asignado", Relator: "Juan Pérez" },
-  { OP: "OP-2202", FechaInicio: "2026-07-30", FechaTermino: "2026-07-30", HoraInicio: "14:00", HoraTermino: "18:00", Lugar: "Sede Puente Alto", Direccion: "Av. Concha y Toro 55", Estado: "Focalizado", Relator: "Juan Pérez" },
-  { OP: "OP-2203", FechaInicio: "2026-08-02", FechaTermino: "2026-08-02", HoraInicio: "09:00", HoraTermino: "12:00", Lugar: "Sede Central", Direccion: "Alameda 1000", Estado: "Suspendido", Relator: "Juan Pérez" },
-  { OP: "OP-2204", FechaInicio: "2026-08-05", FechaTermino: "2026-08-06", HoraInicio: "09:00", HoraTermino: "17:00", Lugar: "Sede La Florida", Direccion: "Vicuña Mackenna 7500", Estado: "Finalizado", Relator: "María Soto" },
-  { OP: "OP-2205", FechaInicio: "2026-08-07", FechaTermino: "2026-08-07", HoraInicio: "10:00", HoraTermino: "13:00", Lugar: "Sede Ñuñoa", Direccion: "Irarrázaval 3000", Estado: "Cancelado dentro de plazo", Relator: "María Soto" },
+  { OP: "OP-2201", FechaInicio: "2026-07-27", FechaTermino: "2026-07-28", HoraInicio: "09:00", HoraTermino: "13:00", Lugar: "Sede Maipú", Direccion: "Av. Pajaritos 1234", Estado: "Asignado", Relator: "Juan Pérez", FocalizacionCargada: false },
+  { OP: "OP-2202", FechaInicio: "2026-07-27", FechaTermino: "2026-07-27", HoraInicio: "14:00", HoraTermino: "18:00", Lugar: "Sede Puente Alto", Direccion: "Av. Concha y Toro 55", Estado: "Focalizado", Relator: "Juan Pérez", FocalizacionCargada: true },
+  { OP: "OP-2203", FechaInicio: "2026-07-30", FechaTermino: "2026-07-30", HoraInicio: "09:00", HoraTermino: "12:00", Lugar: "Sede Central", Direccion: "Alameda 1000", Estado: "Focalizado", Relator: "Juan Pérez", FocalizacionCargada: false },
+  { OP: "OP-2204", FechaInicio: "2026-08-05", FechaTermino: "2026-08-06", HoraInicio: "09:00", HoraTermino: "17:00", Lugar: "Sede La Florida", Direccion: "Vicuña Mackenna 7500", Estado: "Finalizado", Relator: "Juan Pérez", FocalizacionCargada: true },
+  { OP: "OP-2205", FechaInicio: "2026-08-03", FechaTermino: "2026-08-03", HoraInicio: "10:00", HoraTermino: "13:00", Lugar: "Sede Ñuñoa", Direccion: "Irarrázaval 3000", Estado: "Cancelado dentro de plazo", Relator: "Juan Pérez", FocalizacionCargada: false },
 ];
 const MOCK_ASISTENTES = [
   { OP: "OP-2201", Nombre: "Ana Torres", RUT: "12.345.678-9", Correo: "ana@mail.cl", Telefono: "+56911111111", FechaHoraInscripcion: "2026-07-28 09:03" },
@@ -89,13 +152,18 @@ async function mockApi(action, payload) {
     case "getCursos": {
       let cursos = MOCK_CURSOS;
       if (payload.rol === "Relator") cursos = cursos.filter((c) => c.Relator === "Juan Pérez");
-      const alerta = cursos.some((c) => ["Suspendido", "Cancelado dentro de plazo", "Cancelado fuera de plazo"].includes(c.Estado));
-      return { ok: true, cursos, alerta };
+      const alerta = cursos.some((c) => CANCEL_STATES.includes(c.Estado));
+      const notificaciones = cursos
+        .filter((c) => CANCEL_STATES.includes(c.Estado))
+        .map((c) => ({ tipo: "cancelacion", op: c.OP, mensaje: `El curso ${c.OP} fue marcado como "${c.Estado}". Revise su agenda antes de asistir.` }));
+      return { ok: true, cursos, alerta, notificaciones };
     }
     case "getCursoDetalle":
       return { ok: true, curso: MOCK_CURSOS.find((c) => c.OP === payload.op) };
     case "getAsistentes":
       return { ok: true, asistentes: MOCK_ASISTENTES.filter((a) => a.OP === payload.op) };
+    case "getCheckinUrl":
+      return { ok: true, url: null }; // en modo demo no hay backend real que reciba el registro
     case "registrarAsistente":
       MOCK_ASISTENTES.push({ OP: payload.op, Nombre: payload.nombre, RUT: payload.rut, Correo: payload.correo, Telefono: payload.telefono, FechaHoraInscripcion: new Date().toLocaleString() });
       return { ok: true };
@@ -107,6 +175,9 @@ async function mockApi(action, payload) {
     case "subirArchivo": {
       const doc = { OP: payload.op, Tipo: payload.tipo, NombreArchivo: payload.nombreArchivo, URL: "#", FechaHora: new Date().toLocaleString(), Usuario: payload.usuario };
       mockDocs.push(doc);
+      const curso = MOCK_CURSOS.find((c) => c.OP === payload.op);
+      if (curso && payload.tipo === "Focalizacion") curso.FocalizacionCargada = true;
+      if (curso && payload.tipo === "Cierre") curso.CierreCargado = true;
       return { ok: true, url: "#" };
     }
     case "getDocumentos":
@@ -300,18 +371,21 @@ function Sidebar({ session, view, setView, onLogout }) {
 }
 
 // ============================================================================
-// AGENDA DEL RELATOR
+// AGENDA DEL RELATOR — solo sus cursos, vistas Día / Semana / Mes
 // ============================================================================
 function CourseCard({ curso, onOpen }) {
+  const visual = estadoVisual(curso);
   return (
     <button
       onClick={onOpen}
-      className="text-left w-full rounded-xl p-4 border shadow-sm hover:shadow-md transition"
-      style={{ background: COLORS.panel, borderColor: COLORS.border }}
+      className="text-left w-full rounded-xl p-4 border shadow-sm hover:shadow-md transition border-l-4"
+      style={{ background: COLORS.panel, borderColor: COLORS.border, borderLeftColor: visual.color }}
     >
       <div className="flex items-center justify-between mb-2">
         <span className="font-bold" style={{ color: COLORS.primary }}>{curso.OP}</span>
-        <StatusBadge estado={curso.Estado} />
+        <span style={{ background: visual.color + "1a", color: visual.color, border: `1px solid ${visual.color}40` }} className="px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap">
+          {visual.label}
+        </span>
       </div>
       <div className="text-sm flex items-center gap-1.5 mb-1" style={{ color: COLORS.ink }}>
         <Calendar size={14} /> {curso.FechaInicio} — {curso.FechaTermino}
@@ -326,11 +400,154 @@ function CourseCard({ curso, onOpen }) {
   );
 }
 
+function LeyendaColores() {
+  const items = [
+    { color: AGENDA_COLORS.ejecucion, label: "En ejecución" },
+    { color: AGENDA_COLORS.asignado, label: "Asignado" },
+    { color: AGENDA_COLORS.focalizadoExitoso, label: "Focalizado exitoso" },
+    { color: AGENDA_COLORS.focalizadoPendiente, label: "Focalizado pendiente" },
+    { color: AGENDA_COLORS.cancelado, label: "Cancelado / Suspendido" },
+  ];
+  return (
+    <div className="flex flex-wrap gap-3 mb-4">
+      {items.map((it) => (
+        <div key={it.label} className="flex items-center gap-1.5 text-xs" style={{ color: COLORS.sub }}>
+          <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: it.color }} /> {it.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VistaSelector({ vista, setVista }) {
+  const opciones = [{ id: "dia", label: "Día" }, { id: "semana", label: "Semana" }, { id: "mes", label: "Mes" }];
+  return (
+    <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: COLORS.border }}>
+      {opciones.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => setVista(o.id)}
+          className="px-3 py-1.5 text-sm font-medium"
+          style={{ background: vista === o.id ? COLORS.primary : COLORS.panel, color: vista === o.id ? "#fff" : COLORS.ink }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function NavFecha({ fechaRef, setFechaRef, vista }) {
+  const paso = vista === "dia" ? 1 : vista === "semana" ? 7 : 30;
+  const etiqueta =
+    vista === "dia"
+      ? fechaRef.toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+      : vista === "semana"
+      ? `Semana del ${startOfWeekMonday(fechaRef).toLocaleDateString("es-CL", { day: "2-digit", month: "short" })}`
+      : fechaRef.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
+  return (
+    <div className="flex items-center gap-2">
+      <button onClick={() => setFechaRef((f) => (vista === "mes" ? new Date(f.getFullYear(), f.getMonth() - 1, 1) : addDays(f, -paso)))} className="p-1.5 rounded-lg border" style={{ borderColor: COLORS.border, color: COLORS.primary }}>
+        <ChevronLeft size={16} />
+      </button>
+      <button onClick={() => setFechaRef(hoySinHora())} className="text-xs font-semibold px-2 py-1 rounded-lg" style={{ color: COLORS.primary }}>Hoy</button>
+      <span className="text-sm font-semibold capitalize" style={{ color: COLORS.ink }}>{etiqueta}</span>
+      <button onClick={() => setFechaRef((f) => (vista === "mes" ? new Date(f.getFullYear(), f.getMonth() + 1, 1) : addDays(f, paso)))} className="p-1.5 rounded-lg border" style={{ borderColor: COLORS.border, color: COLORS.primary }}>
+        <ChevronRight size={16} />
+      </button>
+    </div>
+  );
+}
+
+function VistaDia({ cursos, fechaRef, onOpenCurso }) {
+  const delDia = cursos.filter((c) => cursoActivoEnDia(c, fechaRef));
+  if (delDia.length === 0) return <div className="text-sm" style={{ color: COLORS.sub }}>No tienes cursos este día.</div>;
+  return (
+    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
+      {delDia.map((c) => <CourseCard key={c.OP} curso={c} onOpen={() => onOpenCurso(c.OP)} />)}
+    </div>
+  );
+}
+
+function VistaSemana({ cursos, fechaRef, onOpenCurso }) {
+  const inicio = startOfWeekMonday(fechaRef);
+  const dias = Array.from({ length: 7 }, (_, i) => addDays(inicio, i));
+  return (
+    <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(7, minmax(120px, 1fr))" }}>
+      {dias.map((dia) => {
+        const delDia = cursos.filter((c) => cursoActivoEnDia(c, dia));
+        const esHoy = sameYMD(dia, hoySinHora());
+        return (
+          <div key={dia.toISOString()} className="rounded-lg border p-2 min-h-[140px]" style={{ borderColor: esHoy ? COLORS.primary : COLORS.border, background: COLORS.panel }}>
+            <div className="text-xs font-semibold mb-2 capitalize" style={{ color: esHoy ? COLORS.primary : COLORS.sub }}>
+              {dia.toLocaleDateString("es-CL", { weekday: "short", day: "numeric" })}
+            </div>
+            <div className="space-y-1.5">
+              {delDia.map((c) => {
+                const v = estadoVisual(c);
+                return (
+                  <button key={c.OP} onClick={() => onOpenCurso(c.OP)} className="w-full text-left text-xs px-2 py-1.5 rounded-md" style={{ background: v.color + "1a", color: v.color, border: `1px solid ${v.color}40` }}>
+                    <div className="font-semibold">{c.OP}</div>
+                    <div>{c.HoraInicio}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function VistaMes({ cursos, fechaRef, onOpenCurso }) {
+  const primerDiaMes = new Date(fechaRef.getFullYear(), fechaRef.getMonth(), 1);
+  const inicioGrilla = startOfWeekMonday(primerDiaMes);
+  const celdas = Array.from({ length: 42 }, (_, i) => addDays(inicioGrilla, i));
+  const nombresDias = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+  return (
+    <div>
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {nombresDias.map((n) => <div key={n} className="text-xs font-semibold text-center py-1" style={{ color: COLORS.sub }}>{n}</div>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {celdas.map((dia) => {
+          const delDia = cursos.filter((c) => cursoActivoEnDia(c, dia));
+          const enEsteMes = dia.getMonth() === fechaRef.getMonth();
+          const esHoy = sameYMD(dia, hoySinHora());
+          return (
+            <div
+              key={dia.toISOString()}
+              className="rounded-lg border p-1.5 min-h-[86px]"
+              style={{ borderColor: esHoy ? COLORS.primary : COLORS.border, background: enEsteMes ? COLORS.panel : COLORS.bg, opacity: enEsteMes ? 1 : 0.5 }}
+            >
+              <div className="text-xs font-semibold mb-1" style={{ color: esHoy ? COLORS.primary : COLORS.ink }}>{dia.getDate()}</div>
+              <div className="space-y-1">
+                {delDia.slice(0, 2).map((c) => {
+                  const v = estadoVisual(c);
+                  return (
+                    <button key={c.OP} onClick={() => onOpenCurso(c.OP)} className="w-full text-left text-[10px] leading-tight px-1 py-0.5 rounded truncate" style={{ background: v.color + "1a", color: v.color }}>
+                      {c.OP}
+                    </button>
+                  );
+                })}
+                {delDia.length > 2 && <div className="text-[10px]" style={{ color: COLORS.sub }}>+{delDia.length - 2} más</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function RelatorAgenda({ session, onOpenCurso }) {
   const [cursos, setCursos] = useState([]);
-  const [alerta, setAlerta] = useState(false);
+  const [notificaciones, setNotificaciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [vista, setVista] = useState("dia");
+  const [fechaRef, setFechaRef] = useState(hoySinHora());
 
   const load = useCallback(async (silent) => {
     if (!silent) setLoading(true);
@@ -339,7 +556,7 @@ function RelatorAgenda({ session, onOpenCurso }) {
       const res = await api("getCursos", { usuario: session.usuario, rol: session.rol });
       if (res.ok) {
         setCursos(res.cursos);
-        setAlerta(res.alerta);
+        setNotificaciones(res.notificaciones || []);
       }
     } finally {
       setLoading(false);
@@ -356,24 +573,31 @@ function RelatorAgenda({ session, onOpenCurso }) {
   return (
     <div>
       <TopBar title="Mi agenda" onRefresh={() => load(true)} refreshing={refreshing} />
-      {alerta && (
-        <div className="flex items-start gap-3 mb-5 px-4 py-3 rounded-xl" style={{ background: "#fffbeb", border: "1px solid #fde68a" }}>
-          <AlertTriangle size={20} style={{ color: "#b45309" }} className="mt-0.5 shrink-0" />
-          <div className="text-sm font-medium" style={{ color: "#92400e" }}>
-            Atención. Existen cursos suspendidos o cancelados. Revise su agenda antes de asistir.
-          </div>
+      {notificaciones.length > 0 && (
+        <div className="mb-5 space-y-2">
+          {notificaciones.map((n, i) => (
+            <div key={i} className="flex items-start gap-3 px-4 py-3 rounded-xl" style={{ background: n.tipo === "reasignacion" ? "#eff6ff" : "#fffbeb", border: `1px solid ${n.tipo === "reasignacion" ? "#bfdbfe" : "#fde68a"}` }}>
+              <AlertTriangle size={20} style={{ color: n.tipo === "reasignacion" ? "#1d4ed8" : "#b45309" }} className="mt-0.5 shrink-0" />
+              <div className="text-sm font-medium" style={{ color: n.tipo === "reasignacion" ? "#1e40af" : "#92400e" }}>{n.mensaje}</div>
+            </div>
+          ))}
         </div>
       )}
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+        <NavFecha fechaRef={fechaRef} setFechaRef={setFechaRef} vista={vista} />
+        <VistaSelector vista={vista} setVista={setVista} />
+      </div>
+      <LeyendaColores />
       {loading ? (
         <Spinner label="Cargando cursos..." />
       ) : cursos.length === 0 ? (
         <div className="text-sm" style={{ color: COLORS.sub }}>No tienes cursos asignados por el momento.</div>
+      ) : vista === "dia" ? (
+        <VistaDia cursos={cursos} fechaRef={fechaRef} onOpenCurso={onOpenCurso} />
+      ) : vista === "semana" ? (
+        <VistaSemana cursos={cursos} fechaRef={fechaRef} onOpenCurso={onOpenCurso} />
       ) : (
-        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
-          {cursos.map((c) => (
-            <CourseCard key={c.OP} curso={c} onOpen={() => onOpenCurso(c.OP)} />
-          ))}
-        </div>
+        <VistaMes cursos={cursos} fechaRef={fechaRef} onOpenCurso={onOpenCurso} />
       )}
     </div>
   );
@@ -471,6 +695,8 @@ function TabInfo({ curso }) {
 function TabAsistentes({ curso }) {
   const [asistentes, setAsistentes] = useState([]);
   const [showQR, setShowQR] = useState(false);
+  const [checkinUrl, setCheckinUrl] = useState(null);
+  const [copiado, setCopiado] = useState(false);
 
   const load = useCallback(async () => {
     const res = await api("getAsistentes", { op: curso.OP });
@@ -483,12 +709,24 @@ function TabAsistentes({ curso }) {
     return () => clearInterval(t);
   }, [load]);
 
-  const qrUrl = DEMO_MODE
-    ? null
-    : `${CONFIG.APPS_SCRIPT_URL}?action=checkin&op=${encodeURIComponent(curso.OP)}`;
-  const qrImg = qrUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrUrl)}`
+  useEffect(() => {
+    // Pedimos la URL real al backend (usa ScriptApp.getService().getUrl(), así
+    // que siempre coincide con el despliegue vigente, aunque haya cambiado).
+    api("getCheckinUrl", { op: curso.OP }).then((res) => {
+      if (res.ok && res.url) setCheckinUrl(res.url);
+    });
+  }, [curso.OP]);
+
+  const qrImg = checkinUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(checkinUrl)}`
     : null;
+
+  function copiarEnlace() {
+    navigator.clipboard.writeText(checkinUrl).then(() => {
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    });
+  }
 
   return (
     <div className="grid md:grid-cols-2 gap-5">
@@ -504,10 +742,25 @@ function TabAsistentes({ curso }) {
         ) : qrImg ? (
           <>
             <img src={qrImg} alt="Código QR de asistencia" className="rounded-lg border" style={{ borderColor: COLORS.border }} />
-            <p className="text-xs mt-3" style={{ color: COLORS.sub }}>Los asistentes escanean este código para registrar su asistencia.</p>
+            <p className="text-xs mt-3 mb-2" style={{ color: COLORS.sub }}>Los asistentes escanean este código para registrar su asistencia.</p>
+            <div className="flex items-center gap-2 max-w-full">
+              <a href={checkinUrl} target="_blank" rel="noreferrer" className="text-xs underline truncate max-w-[220px]" style={{ color: COLORS.primary }}>
+                {checkinUrl}
+              </a>
+              <button onClick={copiarEnlace} className="p-1.5 rounded-md border shrink-0" style={{ borderColor: COLORS.border, color: COLORS.primary }} title="Copiar enlace">
+                <Copy size={13} />
+              </button>
+            </div>
+            {copiado && <p className="text-xs mt-1" style={{ color: COLORS.Finalizado }}>¡Enlace copiado!</p>}
+            <p className="text-xs mt-2" style={{ color: COLORS.sub }}>
+              Consejo: si el QR no lleva a ningún lado, abre este enlace directamente en tu navegador para
+              confirmar que el formulario de registro carga bien antes de compartirlo.
+            </p>
           </>
-        ) : (
+        ) : DEMO_MODE ? (
           <p className="text-sm" style={{ color: COLORS.sub }}>El QR real se genera una vez que conectes la URL de Apps Script en CONFIG.</p>
+        ) : (
+          <Spinner label="Generando enlace de registro..." />
         )}
       </div>
       <div className="rounded-xl border p-5" style={{ background: COLORS.panel, borderColor: COLORS.border }}>
